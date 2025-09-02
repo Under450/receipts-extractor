@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>HMRC Receipt Extractor</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; background: #121212; color: #fff; margin: 0; padding: 20px; }
+    h1 { text-align: center; color: #DAA520; }
+    .upload-box { border: 2px dashed #DAA520; padding: 20px; text-align: center; background: #1e1e1e; margin-bottom: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #1e1e1e; }
+    th, td { border: 1px solid #444; padding: 10px; text-align: left; vertical-align: middle; }
+    th { background: #DAA520; color: #121212; }
+    img.thumb { width: 50px; height: auto; cursor: pointer; }
+    .tick { color: lime; font-weight: bold; }
+    .cross { color: red; font-weight: bold; }
+    .warn { color: orange; font-weight: bold; }
+    button { background: #DAA520; color: #121212; border: none; padding: 10px 15px; margin: 5px; cursor: pointer; font-weight: bold; }
+    button:hover { background: #fff; color: #121212; }
+    #manualModal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); justify-content: center; align-items: center; }
+    #manualModal .content { background: #1e1e1e; padding: 20px; border: 2px solid #DAA520; width: 400px; }
+    #manualModal input { width: 100%; margin: 5px 0; padding: 8px; }
+    #charts { display: flex; justify-content: space-around; margin-top: 30px; flex-wrap: wrap; }
+    #charts canvas { background: #1e1e1e; padding: 10px; border: 1px solid #444; margin: 10px; }
+  </style>
+</head>
+<body>
+  <h1>HMRC Receipt Extractor</h1>
+
+  <div class="upload-box">
+    <p><strong>Upload a receipt (image or take photo)</strong></p>
+    <input type="file" id="fileInput" accept="image/*" capture="environment">
+    <button onclick="processReceipt()">Extract</button>
+    <button onclick="exportCSV()">Export CSV</button>
+    <button onclick="exportPDF()">Export PDF Report</button>
+  </div>
+
+  <div id="results">
+    <h2>Ledger</h2>
+    <table id="ledger">
+      <thead>
+        <tr>
+          <th>Thumb</th><th>Supplier</th><th>VAT No</th><th>Date</th><th>Description</th>
+          <th>Net</th><th>VAT</th><th>Gross</th><th>Method</th>
+          <th>Checks</th><th>Audit</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+      <tfoot>
+        <tr>
+          <th colspan="5">Totals</th>
+          <th id="totalNet">0</th>
+          <th id="totalVAT">0</th>
+          <th id="totalGross">0</th>
+          <th colspan="3"></th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <!-- Dashboard charts -->
+  <div id="charts">
+    <canvas id="categoryChart" width="300" height="300"></canvas>
+    <canvas id="monthlyChart" width="400" height="300"></canvas>
+  </div>
+
+  <!-- Manual entry modal -->
+  <div id="manualModal">
+    <div class="content">
+      <h3>Manual Entry</h3>
+      <input id="manSupplier" placeholder="Supplier">
+      <input id="manVAT" placeholder="VAT Number">
+      <input id="manDate" placeholder="Date (dd/mm/yyyy)">
+      <input id="manDesc" placeholder="Description">
+      <input id="manNet" placeholder="Net Amount">
+      <input id="manVATamt" placeholder="VAT Amount">
+      <input id="manGross" placeholder="Gross Total">
+      <input id="manMethod" placeholder="Payment Method">
+      <button onclick="saveManual()">Save</button>
+    </div>
+  </div>
+
+  <script>
+    const ledger = [];
+    let categoryChart, monthlyChart;
+
+    function vatValid(vat) { return /^(GB)?\d{9}$/.test(vat.trim()); }
+
+    function checkAllowable(desc) {
+      const d = desc.toLowerCase();
+      if (d.includes("fuel") || d.includes("train") || d.includes("parking")) return "Travel";
+      if (d.includes("office") || d.includes("stationery") || d.includes("internet")) return "Office";
+      if (d.includes("advert") || d.includes("website") || d.includes("marketing")) return "Marketing";
+      if (d.includes("accountant") || d.includes("solicitor")) return "Professional";
+      if (d.includes("meal") || d.includes("clothes") || d.includes("holiday")) return "Personal";
+      return "Review";
+    }
+
+    async function processReceipt() {
+      const file = document.getElementById('fileInput').files[0];
+      if (!file) { alert("Please upload a receipt."); return; }
+      const { data: { text } } = await Tesseract.recognize(file, 'eng');
+      const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+
+      const supplier = lines[0] || "";
+      const vatNum = lines.find(l => l.includes("VAT")) || "";
+      const date = lines.find(l => /\d{2}\/\d{2}\/\d{4}/.test(l)) || "";
+      const total = lines.find(l => l.toLowerCase().includes("total")) || "";
+      const desc = lines.slice(1,4).join(", ");
+
+      const reader = new FileReader();
+      reader.onload = e => {
+        const thumb = e.target.result;
+        if (!supplier || !total) {
+          document.getElementById('manualModal').style.display = 'flex';
+          return;
+        }
+        addRow({ thumb, supplier, vatNum, date, description: desc, net: "0", vat: "0", gross: total, method: "Unknown" }, "OCR");
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function addRow(entry, audit) {
+      const dup = ledger.find(r => r.supplier===entry.supplier && r.date===entry.date && r.gross===entry.gross);
+      if (dup) { alert("Duplicate receipt detected."); return; }
+      ledger.push(entry);
+
+      const checks = [];
+      checks.push(vatValid(entry.vatNum) ? "✅ VAT Valid" : "❌ VAT Invalid");
+      if (parseFloat(entry.net)+parseFloat(entry.vat) === parseFloat(entry.gross)) checks.push("✅ Totals match");
+      else checks.push("❌ Totals mismatch");
+      const category = checkAllowable(entry.description);
+      checks.push(category === "Personal" ? "❌ Personal" : category==="Review" ? "⚠️ Review" : "✅ "+category);
+
+      const row = `<tr>
+        <td><img src="${entry.thumb||''}" class="thumb" onclick="window.open(this.src)"></td>
+        <td>${entry.supplier}</td><td>${entry.vatNum}</td><td>${entry.date}</td><td>${entry.description}</td>
+        <td>${entry.net}</td><td>${entry.vat}</td><td>${entry.gross}</td><td>${entry.method}</td>
+        <td>${checks.join("<br>")}</td><td>${audit}</td>
+      </tr>`;
+      document.querySelector("#ledger tbody").insertAdjacentHTML('beforeend', row);
+      updateTotals();
+      updateCharts();
+    }
+
+    function updateTotals() {
+      let net=0, vat=0, gross=0;
+      ledger.forEach(r=>{ net+=parseFloat(r.net)||0; vat+=parseFloat(r.vat)||0; gross+=parseFloat(r.gross)||0; });
+      document.getElementById('totalNet').innerText = net.toFixed(2);
+      document.getElementById('totalVAT').innerText = vat.toFixed(2);
+      document.getElementById('totalGross').innerText = gross.toFixed(2);
+    }
+
+    function saveManual() {
+      const entry = {
+        thumb:"", supplier: document.getElementById("manSupplier").value,
+        vatNum: document.getElementById("manVAT").value,
+        date: document.getElementById("manDate").value,
+        description: document.getElementById("manDesc").value,
+        net: document.getElementById("manNet").value,
+        vat: document.getElementById("manVATamt").value,
+        gross: document.getElementById("manGross").value,
+        method: document.getElementById("manMethod").value
+      };
+      addRow(entry, "Manual");
+      document.getElementById('manualModal').style.display = 'none';
+    }
+
+    function exportCSV() {
+      let csv = "Supplier,VAT,Date,Description,Net,VAT,Gross,Method,Audit\n";
+      ledger.forEach(r=>{ csv += `${r.supplier},${r.vatNum},${r.date},${r.description},${r.net},${r.vat},${r.gross},${r.method}\n`; });
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "ledger.csv";
+      a.click();
+    }
+
+    async function exportPDF() {
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF("p","pt","a4");
+      const date = new Date().toLocaleDateString();
+      pdf.setFontSize(16);
+      pdf.text(`HMRC Receipt Report – ${date}`, 40, 40);
+      const el = document.body;
+      await html2canvas(el).then(canvas=>{
+        const imgData = canvas.toDataURL("image/png");
+        const imgProps= pdf.getImageProperties(imgData);
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+        pdf.addImage(imgData,"PNG",0,60,pdfWidth,pdfHeight);
+      });
+      pdf.save("report.pdf");
+    }
+
+    function updateCharts() {
+      const categories = {Travel:0, Office:0, Marketing:0, Professional:0, Personal:0, Review:0};
+      ledger.forEach(r=>{ categories[checkAllowable(r.description)]++; });
+
+      if (categoryChart) categoryChart.destroy();
+      categoryChart = new Chart(document.getElementById('categoryChart'), {
+        type:"pie",
+        data:{ labels:Object.keys(categories), datasets:[{ data:Object.values(categories), backgroundColor:["#0074D9","#2ECC40","#FF851B","#B10DC9","#FF4136","#AAAAAA"]}] },
+        options:{ plugins:{ legend:{ labels:{ color:"#fff" }}}}
+      });
+
+      const months={};
+      ledger.forEach(r=>{ if(r.date && r.date.length>=10){const m=r.date.slice(3,5)+"/"+r.date.slice(6); months[m]=(months[m]||0)+parseFloat(r.gross)||0;}});
+      if (monthlyChart) monthlyChart.destroy();
+      monthlyChart = new Chart(document.getElementById('monthlyChart'), {
+        type:"bar",
+        data:{ labels:Object.keys(months), datasets:[{ label:"Gross", data:Object.values(months), backgroundColor:"#DAA520"}] },
+        options:{ plugins:{ legend:{ labels:{ color:"#fff" }}}, scales:{ x:{ ticks:{ color:"#fff"}}, y:{ ticks:{ color:"#fff"}} }}
+      });
+    }
+  </script>
+</body>
+</html>
