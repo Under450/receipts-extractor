@@ -27,9 +27,11 @@
 
 <div class="upload-box">
   <label for="receiptInput" class="custom-upload-btn">📸 Upload Receipt</label>
-  <input type="file" id="receiptInput" accept="image/*,.pdf" capture="environment" style="display:none;">
+  <input type="file" id="receiptInput"
+         accept="image/*,.pdf"
+         capture="environment"
+         style="display:none">
   <div class="button-row">
-    <button onclick="processReceipt()">Extract</button>
     <button onclick="exportCSV()">Export CSV</button>
     <button onclick="exportPDF()">Export PDF Report</button>
     <button onclick="clearDemo()">🧹 Clear Demo Data</button>
