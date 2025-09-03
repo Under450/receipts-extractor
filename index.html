@@ -8,12 +8,10 @@
   <link rel="stylesheet" href="style.css">
 
   <!-- External Libraries -->
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2.1.5/dist/tesseract.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-
-  <!-- Your App JS -->
-  <script src="app.js" defer></script>
 </head>
 <body>
 <header>
@@ -65,7 +63,7 @@
   <canvas id="monthlyChart" width="400" height="300"></canvas>
 </div>
 
-<div id="manualModal">
+<div id="manualModal" style="display:none;">
   <div class="content">
     <h3>Manual Entry</h3>
     <input id="manSupplier" placeholder="Supplier">
@@ -80,6 +78,7 @@
   </div>
 </div>
 
+<!-- ✅ Load your JavaScript last -->
 <script src="app.js"></script>
 </body>
 </html>
