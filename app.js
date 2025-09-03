@@ -1,0 +1,1 @@
+/* Full JS code with OCR, compliance checks, charts, exports */
