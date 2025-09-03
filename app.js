@@ -3,7 +3,15 @@ let rows = [];
 let categoryChart, monthlyChart;
 const $ = sel => document.querySelector(sel);
 const $$ = sel => document.querySelectorAll(sel);
-
+// ========== AUTO UPLOAD HANDLER ==========
+document.addEventListener('DOMContentLoaded', () => {
+  const inp = document.getElementById('receiptInput');   // file input box
+  if (inp) {
+    inp.addEventListener('change', () => {
+      processReceipt();  // run the OCR/extractor when file chosen
+    });
+  }
+});
 /* ======== HELPERS ======== */
 const toNum = v => Number(String(v).replace(/[^0-9.\-]/g, '')) || 0;
 const fmt  = n => (isFinite(n) ? n.toFixed(2) : '0.00');
